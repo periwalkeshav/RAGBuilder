@@ -1,0 +1,99 @@
+# ---------------------------------------------------------------------------
+#  RAGBuilder configuration.
+#
+#  Every value can be overridden by an environment variable of the same name in
+#  upper snake case (llm.model -> LLM_MODEL), which is what lets docker-compose
+#  and CI change behaviour without touching this file.
+# ---------------------------------------------------------------------------
+
+corpus:
+  # Which document set to download. See ragbuilder/ingestion/corpora.py.
+  name: german_labour_law
+  pdf_dir: data/pdfs
+
+embedding:
+  # The e5 family handles German and English in one vector space, which matters
+  # here: the corpus is German, the questions may be either.
+  #
+  # Measured on this corpus, 10 CPU cores in Docker, no GPU:
+  #   -small   384 dims, ~470 MB, 3.9 chunks/s  -> 1,385 chunks in 6 minutes
+  #   -base    768 dims, ~1.1 GB
+  #   -large  1024 dims, ~2.2 GB, <0.5 chunks/s -> still running after 35 minutes
+  #
+  # -small is the default because a 45-minute embed step is a bad first
+  # experience for anyone cloning this repo. The retrieval code is
+  # dimension-agnostic, so switching is one env var plus a collection rebuild:
+  #   EMBEDDING_MODEL=intfloat/multilingual-e5-large make reset-vectors
+  # Use -large on a GPU, or when retrieval quality matters more than iteration
+  # speed - it is the better model, it is simply not a good CPU default.
+  model: intfloat/multilingual-e5-small
+  dimensions: 384
+  batch_size: 32
+  max_seq_length: 512
+  normalize: true
+  # e5 models are trained with asymmetric prefixes. Dropping them costs several
+  # points of recall, and it is the single most common way to misuse this model.
+  query_prefix: "query: "
+  passage_prefix: "passage: "
+
+chunking:
+  # The active strategy. `make evaluate` scores all three and writes the
+  # comparison table in the README.
+  strategy: sentence
+  fixed:
+    chunk_tokens: 512
+    overlap_tokens: 50
+  sentence:
+    max_tokens: 512
+    overlap_sentences: 1
+    language: german
+  semantic:
+    max_tokens: 512
+    # Cosine distance between consecutive sentence embeddings above which a new
+    # chunk is started. Higher = fewer, larger chunks.
+    breakpoint_percentile: 85
+    min_sentences: 3
+
+vector_store:
+  collection: ragbuilder_chunks
+  distance: cosine
+  hnsw_m: 16
+  hnsw_ef_construct: 128
+
+retrieval:
+  strategy: hybrid          # dense | sparse | hybrid
+  top_k: 5
+  candidate_k: 20           # per retriever, before fusion
+  rrf_k: 60                 # reciprocal rank fusion constant
+  query_expansion: true
+  expansion_variants: 3
+  min_score: 0.0
+
+llm:
+  provider: ollama
+  model: mistral:latest
+  fallback_model: qwen2.5-coder:7b
+  temperature: 0.1          # near-greedy: this is extraction, not creative writing
+  top_p: 0.9
+  num_ctx: 8192
+  max_tokens: 1024
+  timeout_seconds: 180
+  stream: true
+
+rag:
+  memory_turns: 3
+  # Below this retrieval confidence the chain refuses rather than guesses.
+  min_confidence: 0.30
+  max_context_chars: 8000
+  cite_sources: true
+  language: auto            # auto | de | en
+
+evaluation:
+  judge_model: mistral:latest
+  testset: ragbuilder/evaluation/testset.json
+  mlflow_experiment: ragbuilder
+  strategies: [fixed, sentence, semantic]
+
+api:
+  rate_limit: "30/minute"
+  cors_origins: ["*"]

@@ -1,0 +1,9 @@
+[flake8]
+max-line-length = 120
+extend-ignore = E203, W503, E402
+exclude = .git,__pycache__,.venv,data,mlruns
+per-file-ignores =
+    tests/*:E501
+    ragbuilder/llm/prompts.py:E501
+    # Verbatim German statute text, kept unwrapped so it matches the corpus.
+    scripts/ab_embedding_models.py:E501
