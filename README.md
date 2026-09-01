@@ -10,6 +10,55 @@ protection review.
 
 ---
 
+## Architecture
+
+```mermaid
+flowchart LR
+    subgraph Ingest["Ingestion (incremental, SHA-256 gated)"]
+        PDF["26 statutes<br/>gesetze-im-internet.de"]
+        PARSE["PyMuPDF<br/>pages · § sections · tables→MD"]
+        CHUNK["3 chunkers<br/>fixed · sentence · semantic"]
+    end
+
+    subgraph Store["System of record"]
+        PG[("PostgreSQL<br/>documents · pages · chunks<br/>query log · eval results")]
+        QD[("Qdrant<br/>4,015 vectors<br/>384-dim, cosine")]
+    end
+
+    subgraph Retrieve["Retrieval"]
+        DENSE["Dense<br/>multilingual-e5"]
+        BM25["Sparse<br/>BM25"]
+        RRF["RRF fusion<br/>k=60"]
+    end
+
+    subgraph Generate
+        GUARD{"confidence<br/>≥ 0.30?"}
+        LLM["Ollama · Mistral-7B<br/>citation-aware prompt"]
+        REFUSE["refuse<br/>without calling the LLM"]
+    end
+
+    UI["Streamlit UI"]
+    API["FastAPI<br/>/query · /query/stream · /ingest"]
+    EVAL["RAGAs harness<br/>→ MLflow"]
+
+    PDF --> PARSE --> CHUNK --> PG
+    CHUNK --> QD
+    UI --> API --> DENSE & BM25
+    DENSE & BM25 --> RRF --> GUARD
+    GUARD -->|yes| LLM
+    GUARD -->|no| REFUSE
+    PG -.text.-> RRF
+    QD -.vectors.-> DENSE
+    EVAL --> API
+```
+
+**PostgreSQL is the system of record; Qdrant is derived state.** Changing the embedding
+model or the chunking strategy means dropping the collection and rebuilding it — which
+must not mean re-parsing 26 PDFs. The vector payload carries a 300-character preview for
+rendering a citation without a round trip, and nothing more.
+
+---
+
 ## The corpus
 
 26 federal statutes from **gesetze-im-internet.de**, the Federal Ministry of Justice's
