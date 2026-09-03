@@ -8,6 +8,17 @@ No document and no question ever leaves the machine — which for a German clien
 GDPR is the difference between a project that ships and one that dies in a data
 protection review.
 
+```bash
+docker compose up -d --build && make setup
+```
+
+| Service | URL | What it is |
+|---|---|---|
+| Chat UI | http://localhost:8501 | Streamlit chat with expandable source citations |
+| API docs | http://localhost:8000/docs | OpenAPI, auto-generated |
+| Qdrant | http://localhost:6333/dashboard | Vector store |
+| MLflow | http://localhost:5001 | Evaluation experiment tracking |
+
 ---
 
 ## Architecture
@@ -56,6 +67,40 @@ flowchart LR
 model or the chunking strategy means dropping the collection and rebuilding it — which
 must not mean re-parsing 26 PDFs. The vector payload carries a 300-character preview for
 rendering a citation without a round trip, and nothing more.
+
+---
+
+## Quick start
+
+**Prerequisites:** Docker Desktop (~6 GB), and [Ollama](https://ollama.com) running on
+the host with a model pulled:
+
+```bash
+ollama pull mistral
+```
+
+Then:
+
+```bash
+git clone https://github.com/your-handle/RAGBuilder.git
+cd RAGBuilder
+cp .env.example .env          # optional - every value has a default
+
+make up                       # postgres + qdrant + mlflow + api + ui
+make setup                    # download 26 statutes, parse, chunk, embed  (~12 min)
+```
+
+Open http://localhost:8501 and ask *"Wie viele Urlaubstage stehen mir mindestens zu?"*
+
+```bash
+make health          # component-level status
+make stats           # chunk counts per strategy, vector store, documents
+make ask Q="Ab wann gilt der Kündigungsschutz?"
+make search Q="§ 3 Mindesturlaub"       # retrieval only, no generation
+make evaluate-fast   # the retrieval grid above, ~2 minutes
+make evaluate        # full RAGAs scoring - slow, see below
+make clean           # stop and delete all data
+```
 
 ---
 
