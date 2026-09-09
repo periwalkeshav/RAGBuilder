@@ -104,6 +104,59 @@ make clean           # stop and delete all data
 
 ---
 
+## How retrieval works
+
+### Why hybrid
+
+The two retrievers fail in **uncorrelated** ways, which is the only reason combining
+them helps:
+
+| Query | Dense alone | BM25 alone |
+|---|---|---|
+| `§ 3 Mindesturlaub` | returns a *semantically similar* paragraph about leave — plausible, wrong | exact match, rank 1 |
+| *"Wie lange habe ich frei?"* | finds `Der Urlaub beträgt jährlich mindestens 24 Werktage` | thin keyword overlap |
+
+The BM25 tokenizer deliberately keeps `§` and digits, because in a statutory corpus
+those are the highest-signal tokens in the query — and the ones an embedding model
+blurs together (`§ 622` and `§ 623` are near-identical vectors).
+
+### Why Reciprocal Rank Fusion, not score merging
+
+```
+score(d) = Σ over retrievers  1 / (k + rank(d))        k = 60
+```
+
+A cosine similarity of 0.83 and a BM25 score of 14.2 are not comparable. Every
+normalisation scheme (min-max, z-score) makes the weighting depend on the score spread
+of the *particular query*, so the balance between retrievers silently changes from
+question to question. RRF uses **rank only** — the robust statistic — and rewards
+agreement: a chunk ranked 3rd by both retrievers outranks one ranked 1st by a single
+retriever and missed by the other.
+
+That property is pinned by a test:
+
+```python
+def test_agreement_beats_a_single_first_place(self):
+    fused = dict(reciprocal_rank_fusion([["a", "b"], ["c", "b"]], k=60))
+    assert fused["b"] > fused["a"]
+```
+
+### Query expansion is rule-based on purpose
+
+Expansion runs on the latency path of *every* question. A 2-second LLM call to rephrase
+is a poor trade against the recall it buys. The variants that matter for this corpus are
+cheap and deterministic:
+
+| Input | Expansions |
+|---|---|
+| `Wie lange ist die Kündigungsfrist?` | `die Kündigungsfrist` · `kündigungsfrist` |
+| `Was steht in Paragraf 622 Absatz 2?` | `Was steht in § 622 abs. 2?` · `622 abs 2` |
+
+Stripping the interrogative frame makes the query look more like the statutory text it
+should match.
+
+---
+
 ## The corpus
 
 26 federal statutes from **gesetze-im-internet.de**, the Federal Ministry of Justice's
