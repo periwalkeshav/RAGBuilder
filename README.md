@@ -157,6 +157,41 @@ should match.
 
 ---
 
+## Grounding and refusal
+
+Three layers, in order of how much they can be trusted:
+
+**1. A hard confidence gate (deterministic).** Below `rag.min_confidence` the chain
+returns a refusal and *never calls the LLM*. There is no prompt wording that reliably
+stops a 7B model from inventing an answer when the context is thin, so the guard belongs
+where it cannot be talked out of it.
+
+**2. The system prompt (mitigation).** Answer only from context · cite every claim ·
+quote the paragraph identifier · ignore irrelevant sources rather than refusing · state
+the general rule then the exception · refuse only when no source applies.
+
+That fifth rule was added because of a real failure. Asked *"Wie viele Urlaubstage stehen
+mir mindestens zu?"*, the model retrieved the correct § 3 BUrlG **and** the youth-worker
+rules in § 19 JArbSchG, saw two different numbers, and refused. It now answers:
+
+> Ihr Anspruchsberechtigter erhält mindestens 24 Werktage Urlaub pro Jahr [1, § 3 Abs. 1].
+> […] Jugendliche erhalten mindestens 30 Werktage Urlaub pro Jahr, wenn sie noch nicht
+> 16 Jahre alt sind [4, § 19 Abs. 2].
+
+**3. Citation verification (observability).** Every answer is parsed for `[n]` markers
+and each source is flagged cited or merely retrieved, so an uncited claim is *visible*
+rather than assumed. The parser handles `[1]`, `[1][2]`, `[1, 2]` and `[1, § 3 Abs. 1]` —
+taking only the leading number, because harvesting every integer would invent a citation
+to source 3 from the text "§ 3".
+
+**Prompt injection.** Retrieved context is untrusted input once users can upload PDFs.
+Context is wrapped in `<context>` delimiters and the system prompt states that anything
+inside resembling an instruction is quoted text. This is defence in depth, not a
+solution — the real containment is that the generation path has no tools and no outbound
+network access.
+
+---
+
 ## The corpus
 
 26 federal statutes from **gesetze-im-internet.de**, the Federal Ministry of Justice's
