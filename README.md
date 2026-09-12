@@ -209,3 +209,43 @@ provision is numbered so citations are checkable by hand; and answers are precis
 
 An English fallback corpus (`arxiv_nlp`) is registered for demos:
 `make ingest CORPUS=arxiv_nlp`.
+
+---
+
+## API
+
+```bash
+curl -X POST http://localhost:8000/query \
+  -H 'Content-Type: application/json' \
+  -d '{"question": "Wie viele Urlaubstage stehen mir mindestens zu?"}'
+```
+
+```jsonc
+{
+  "answer": "Jährlich mindestens 24 Werktage [1, § 3 Abs. 1].",
+  "sources": [{
+    "index": 1,
+    "citation": "Bundesurlaubsgesetz, § 3 Dauer des Urlaubs, pp. 1-2",
+    "excerpt": "§ 3 Dauer des Urlaubs (1) Der Urlaub beträgt jährlich mindestens 24 Werktage. […]",
+    "retriever": "hybrid", "dense_rank": 2, "sparse_rank": 9, "cited": true
+  }],
+  "confidence": 0.656,
+  "refused": false,
+  "cited_source_count": 1,
+  "retrieval_ms": 231.4,
+  "generation_ms": 36912.0
+}
+```
+
+| Endpoint | Purpose |
+|---|---|
+| `POST /query` | Answer a question |
+| `POST /query/stream` | Same, as SSE — **sources first**, then tokens, so the UI renders citations while the model is still writing |
+| `POST /ingest` | Download, parse, chunk, embed (background; ~12 min, far beyond any HTTP timeout) |
+| `GET /documents` | Knowledge base contents |
+| `GET /health` | Per-component status for PostgreSQL, Qdrant and Ollama |
+| `GET /stats` | Chunk counts, vector store state, query volume |
+
+Blocking LLM and embedding calls run in a threadpool rather than pretending to be async —
+declaring a handler `async def` and then doing blocking work inside it is the classic way
+to stall an event loop. Rate limiting via slowapi, 30/minute by default.
