@@ -2,7 +2,8 @@
 
 A production-shaped RAG system over **26 German federal labour statutes**, running
 **entirely on local models**. Hybrid retrieval (dense + BM25 fused with Reciprocal Rank
-Fusion) and citation-grounded generation with an explicit refusal path.
+Fusion), citation-grounded generation with an explicit refusal path, and a RAGAs
+evaluation harness that measures all of it.
 
 No document and no question ever leaves the machine — which for a German client under
 GDPR is the difference between a project that ships and one that dies in a data
@@ -189,6 +190,44 @@ Context is wrapped in `<context>` delimiters and the system prompt states that a
 inside resembling an instruction is quoted text. This is defence in depth, not a
 solution — the real containment is that the generation path has no tools and no outbound
 network access.
+
+---
+
+## Evaluation
+
+Four RAGAs metrics, implemented against the **local** judge model rather than importing
+the `ragas` package — which defaults to OpenAI, and sending this corpus to a third-party
+API to measure a system whose premise is that data stays local would be incoherent.
+
+| Metric | Measures | Needs |
+|---|---|---|
+| `faithfulness` | fraction of the answer's claims the context supports (hallucination rate, inverted) | judge |
+| `answer_relevancy` | similarity between the real question and one reconstructed from the answer | judge + embeddings |
+| `context_precision` | fraction of retrieved chunks that are actually useful — grades the *retriever* | judge |
+| `context_recall` | fraction of the reference answer the context could support | judge + ground truth |
+| `refusal_accuracy` * | refused the unanswerable **and** answered the answerable | — |
+| `citation_rate` * | fraction of answers carrying at least one `[n]` | — |
+
+\* not RAGAs metrics; added because a system that refuses everything scores perfectly on
+faithfulness and is useless.
+
+**A 7B judge is a weak judge, and the code says so.** Unparseable verdicts are counted as
+undecided and *excluded* from the average rather than scored zero — otherwise a flaky
+judge looks like a hallucinating system. Treat the relative comparison between strategies
+as the signal and the absolute values with suspicion.
+
+```bash
+make evaluate-fast   # retrieval only, no generation - 2 minutes, the grid above
+make evaluate        # full scoring - ~3 min/question on CPU
+```
+
+`--retrieval-only` exists because generation is ~40 s per question and retrieval is
+~0.2 s. Tuning chunk size, fusion weights or expansion against the full grid is a
+two-minute loop instead of an hour, and `retrieval_hit_rate` is the metric that actually
+moves when you change them.
+
+Every run is logged to MLflow with the full parameter set (embedding model, LLM, top-k,
+RRF k, expansion on/off, confidence threshold) plus per-sample verdicts as an artifact.
 
 ---
 

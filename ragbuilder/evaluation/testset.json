@@ -1,0 +1,184 @@
+{
+  "name": "german_labour_law_v1",
+  "description": "22 questions over the German labour law corpus. Every ground truth is traceable to a specific paragraph of a statute in the corpus, so context_recall and faithfulness are checkable by hand. Four questions are English (the corpus is German - this is what multilingual embeddings are for) and two are deliberately unanswerable from this corpus, which is how the refusal path gets measured rather than assumed.",
+  "questions": [
+    {
+      "id": "q01",
+      "question": "Wie viele Urlaubstage stehen einem Arbeitnehmer mindestens zu?",
+      "ground_truth": "Der gesetzliche Mindesturlaub beträgt nach § 3 BUrlG 24 Werktage im Kalenderjahr. Als Werktage gelten alle Kalendertage, die nicht Sonn- oder gesetzliche Feiertage sind, also eine Sechstagewoche.",
+      "expected_docs": ["burlg"],
+      "language": "de",
+      "answerable": true
+    },
+    {
+      "id": "q02",
+      "question": "Wie lange darf die werktägliche Arbeitszeit höchstens sein?",
+      "ground_truth": "Nach § 3 ArbZG darf die werktägliche Arbeitszeit acht Stunden nicht überschreiten. Sie kann auf bis zu zehn Stunden verlängert werden, wenn innerhalb von sechs Kalendermonaten oder 24 Wochen im Durchschnitt acht Stunden werktäglich nicht überschritten werden.",
+      "expected_docs": ["arbzg"],
+      "language": "de",
+      "answerable": true
+    },
+    {
+      "id": "q03",
+      "question": "Welche Ruhepausen sind bei einer Arbeitszeit von mehr als sechs Stunden vorgeschrieben?",
+      "ground_truth": "Nach § 4 ArbZG ist die Arbeit bei einer Arbeitszeit von mehr als sechs bis zu neun Stunden durch eine Ruhepause von mindestens 30 Minuten zu unterbrechen, bei mehr als neun Stunden durch mindestens 45 Minuten.",
+      "expected_docs": ["arbzg"],
+      "language": "de",
+      "answerable": true
+    },
+    {
+      "id": "q04",
+      "question": "Wie lang muss die Ruhezeit nach Beendigung der täglichen Arbeitszeit sein?",
+      "ground_truth": "Nach § 5 ArbZG müssen Arbeitnehmer nach Beendigung der täglichen Arbeitszeit eine ununterbrochene Ruhezeit von mindestens elf Stunden haben.",
+      "expected_docs": ["arbzg"],
+      "language": "de",
+      "answerable": true
+    },
+    {
+      "id": "q05",
+      "question": "Ab wann gilt der allgemeine Kündigungsschutz nach dem Kündigungsschutzgesetz?",
+      "ground_truth": "Nach § 1 Abs. 1 KSchG gilt der Kündigungsschutz, wenn das Arbeitsverhältnis in demselben Betrieb oder Unternehmen ohne Unterbrechung länger als sechs Monate bestanden hat. Nach § 23 KSchG gilt er zudem nur in Betrieben mit in der Regel mehr als zehn Arbeitnehmern.",
+      "expected_docs": ["kschg"],
+      "language": "de",
+      "answerable": true
+    },
+    {
+      "id": "q06",
+      "question": "Wie lange muss der Arbeitgeber im Krankheitsfall das Entgelt fortzahlen?",
+      "ground_truth": "Nach § 3 EntgFG hat der Arbeitnehmer bei unverschuldeter Arbeitsunfähigkeit infolge Krankheit Anspruch auf Entgeltfortzahlung durch den Arbeitgeber für die Zeit der Arbeitsunfähigkeit bis zur Dauer von sechs Wochen.",
+      "expected_docs": ["entgfg"],
+      "language": "de",
+      "answerable": true
+    },
+    {
+      "id": "q07",
+      "question": "Nach welcher Wartezeit entsteht der Anspruch auf Entgeltfortzahlung im Krankheitsfall?",
+      "ground_truth": "Nach § 3 Abs. 3 EntgFG entsteht der Anspruch nach vierwöchiger ununterbrochener Dauer des Arbeitsverhältnisses.",
+      "expected_docs": ["entgfg"],
+      "language": "de",
+      "answerable": true
+    },
+    {
+      "id": "q08",
+      "question": "Welche Schutzfristen gelten vor und nach der Entbindung?",
+      "ground_truth": "Nach § 3 MuSchG darf die Frau in den letzten sechs Wochen vor der Entbindung nicht beschäftigt werden, soweit sie sich nicht ausdrücklich zur Arbeitsleistung bereit erklärt. Nach der Entbindung besteht ein Beschäftigungsverbot von acht Wochen, bei Früh- und Mehrlingsgeburten von zwölf Wochen.",
+      "expected_docs": ["muschg"],
+      "language": "de",
+      "answerable": true
+    },
+    {
+      "id": "q09",
+      "question": "Bis zu welchem Alter des Kindes kann Elternzeit genommen werden?",
+      "ground_truth": "Nach § 15 BEEG besteht Anspruch auf Elternzeit bis zur Vollendung des dritten Lebensjahres des Kindes. Ein Anteil von bis zu 24 Monaten kann zwischen dem dritten und dem achten Geburtstag genommen werden.",
+      "expected_docs": ["beeg"],
+      "language": "de",
+      "answerable": true
+    },
+    {
+      "id": "q10",
+      "question": "Welche Merkmale schützt das Allgemeine Gleichbehandlungsgesetz vor Benachteiligung?",
+      "ground_truth": "Nach § 1 AGG sollen Benachteiligungen aus Gründen der Rasse oder wegen der ethnischen Herkunft, des Geschlechts, der Religion oder Weltanschauung, einer Behinderung, des Alters oder der sexuellen Identität verhindert oder beseitigt werden.",
+      "expected_docs": ["agg"],
+      "language": "de",
+      "answerable": true
+    },
+    {
+      "id": "q11",
+      "question": "Innerhalb welcher Frist muss ein Anspruch nach dem AGG geltend gemacht werden?",
+      "ground_truth": "Nach § 15 Abs. 4 AGG muss ein Anspruch auf Entschädigung oder Schadensersatz innerhalb einer Frist von zwei Monaten schriftlich geltend gemacht werden, sofern die Tarifvertragsparteien nichts anderes vereinbart haben.",
+      "expected_docs": ["agg"],
+      "language": "de",
+      "answerable": true
+    },
+    {
+      "id": "q12",
+      "question": "In welchen Betrieben werden Betriebsräte gewählt?",
+      "ground_truth": "Nach § 1 BetrVG werden Betriebsräte in Betrieben mit in der Regel mindestens fünf ständigen wahlberechtigten Arbeitnehmern gewählt, von denen drei wählbar sind.",
+      "expected_docs": ["betrvg"],
+      "language": "de",
+      "answerable": true
+    },
+    {
+      "id": "q13",
+      "question": "Wie lange dauert die regelmäßige Amtszeit des Betriebsrats?",
+      "ground_truth": "Nach § 21 BetrVG beträgt die regelmäßige Amtszeit des Betriebsrats vier Jahre. Sie beginnt mit der Bekanntgabe des Wahlergebnisses oder mit Ablauf der Amtszeit des vorherigen Betriebsrats.",
+      "expected_docs": ["betrvg"],
+      "language": "de",
+      "answerable": true
+    },
+    {
+      "id": "q14",
+      "question": "Wie lange darf ein Arbeitsvertrag ohne Sachgrund befristet werden?",
+      "ground_truth": "Nach § 14 Abs. 2 TzBfG ist die kalendermäßige Befristung ohne Sachgrund bis zur Dauer von zwei Jahren zulässig; bis zu dieser Gesamtdauer ist die höchstens dreimalige Verlängerung möglich. Sie ist nicht zulässig, wenn mit demselben Arbeitgeber bereits zuvor ein Arbeitsverhältnis bestanden hat.",
+      "expected_docs": ["tzbfg"],
+      "language": "de",
+      "answerable": true
+    },
+    {
+      "id": "q15",
+      "question": "Wie lange darf ein Leiharbeitnehmer demselben Entleiher überlassen werden?",
+      "ground_truth": "Nach § 1 Abs. 1b AÜG darf der Verleiher denselben Leiharbeitnehmer nicht länger als 18 aufeinander folgende Monate demselben Entleiher überlassen. Durch Tarifvertrag der Einsatzbranche kann eine abweichende Überlassungshöchstdauer festgelegt werden.",
+      "expected_docs": ["aüg"],
+      "language": "de",
+      "answerable": true
+    },
+    {
+      "id": "q16",
+      "question": "Welche Arbeitszeit gilt für Jugendliche?",
+      "ground_truth": "Nach § 8 JArbSchG dürfen Jugendliche nicht mehr als acht Stunden täglich und nicht mehr als 40 Stunden wöchentlich beschäftigt werden.",
+      "expected_docs": ["jarbschg"],
+      "language": "de",
+      "answerable": true
+    },
+    {
+      "id": "q17",
+      "question": "Wie lange kann ein Beschäftigter Pflegezeit in Anspruch nehmen?",
+      "ground_truth": "Nach § 4 PflegeZG können Beschäftigte für die Pflege eines pflegebedürftigen nahen Angehörigen bis zu sechs Monate vollständig oder teilweise von der Arbeit freigestellt werden. Nach § 2 PflegeZG besteht daneben ein Anspruch auf kurzzeitige Arbeitsverhinderung von bis zu zehn Arbeitstagen.",
+      "expected_docs": ["pflegezg"],
+      "language": "de",
+      "answerable": true
+    },
+    {
+      "id": "q18",
+      "question": "Wann kann Urlaub auf das folgende Kalenderjahr übertragen werden?",
+      "ground_truth": "Nach § 7 Abs. 3 BUrlG muss der Urlaub im laufenden Kalenderjahr gewährt und genommen werden. Eine Übertragung auf das nächste Kalenderjahr ist nur zulässig, wenn dringende betriebliche oder in der Person des Arbeitnehmers liegende Gründe dies rechtfertigen; der übertragene Urlaub muss dann in den ersten drei Monaten des folgenden Kalenderjahres gewährt und genommen werden.",
+      "expected_docs": ["burlg"],
+      "language": "de",
+      "answerable": true
+    },
+    {
+      "id": "q19",
+      "question": "What is the statutory minimum annual leave for employees in Germany?",
+      "ground_truth": "Under section 3 of the Bundesurlaubsgesetz (BUrlG) the statutory minimum leave is 24 working days per calendar year, based on a six-day working week.",
+      "expected_docs": ["burlg"],
+      "language": "en",
+      "answerable": true
+    },
+    {
+      "id": "q20",
+      "question": "What is the maximum daily working time under German working time law?",
+      "ground_truth": "Under section 3 of the Arbeitszeitgesetz (ArbZG) daily working time must not exceed eight hours. It may be extended to ten hours provided the average over six calendar months or 24 weeks does not exceed eight hours per working day.",
+      "expected_docs": ["arbzg"],
+      "language": "en",
+      "answerable": true
+    },
+    {
+      "id": "q21",
+      "question": "Wie hoch ist der Körperschaftsteuersatz für Kapitalgesellschaften in Deutschland?",
+      "ground_truth": "",
+      "expected_docs": [],
+      "language": "de",
+      "answerable": false,
+      "note": "Tax law is outside this corpus. A correct system refuses instead of answering from pre-training."
+    },
+    {
+      "id": "q22",
+      "question": "What are the capital adequacy requirements for German banks under Basel III?",
+      "ground_truth": "",
+      "expected_docs": [],
+      "language": "en",
+      "answerable": false,
+      "note": "Banking regulation is outside this corpus. Measures the refusal path."
+    }
+  ]
+}
