@@ -288,3 +288,31 @@ curl -X POST http://localhost:8000/query \
 Blocking LLM and embedding calls run in a threadpool rather than pretending to be async —
 declaring a handler `async def` and then doing blocking work inside it is the classic way
 to stall an event loop. Rate limiting via slowapi, 30/minute by default.
+
+---
+
+## Testing
+
+**213 unit tests** (plus 18 integration), all green. The unit suite needs no stack and
+runs in 8 seconds.
+
+| Suite | Tests | Covers |
+|---|---:|---|
+| `test_prompts.py` | 40 | Grounding/citation/refusal/injection instructions present, context budget, citation parsing edge cases |
+| `test_retrieval.py` | 38 | RRF arithmetic (including the agreement property), BM25 tokenisation, query expansion, confidence in all three modes |
+| `test_parsing.py` | 32 | § heading detection, page-furniture stripping, table→Markdown, corpus integrity |
+| `test_chunking.py` | 30 | All three chunkers: token budgets, exact page attribution, sentence integrity, chunk-id stability and namespacing |
+| `test_evaluation.py` | 27 | Metric definitions, undecided-verdict handling, test set integrity |
+| `test_config.py` | 24 | Nested config sections, env overrides, type coercion, dimension guards |
+| `test_api.py` | 22 | Routing, validation, serialisation, 503 on model failure — chain stubbed |
+| `test_integration.py` | 18 | End to end against the running stack |
+
+```bash
+make test-unit          # 213 tests, ~8 s
+make test-integration   # needs the stack up and the corpus ingested
+make lint               # flake8 + black
+```
+
+Several of these tests exist because of bugs found while building, and say so in their
+docstrings — the sparse-confidence test, the chunk-id namespacing test, and the
+citation-parsing tests all pin real regressions.
