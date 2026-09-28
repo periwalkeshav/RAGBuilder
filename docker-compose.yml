@@ -1,0 +1,152 @@
+name: ragbuilder
+
+# ---------------------------------------------------------------------------
+#  RAGBuilder - the whole stack in one command:
+#
+#      docker compose up -d --build
+#
+#  Ollama runs on the HOST, not in a container: on macOS and Windows a
+#  containerised Ollama gets no GPU access, and pulling a 4 GB model into an
+#  image layer is a bad trade. The API reaches it via host.docker.internal.
+#
+#  UI map:  API docs   http://localhost:8000/docs
+#           Chat UI    http://localhost:8501
+#           Qdrant     http://localhost:6333/dashboard
+#           MLflow     http://localhost:5001
+# ---------------------------------------------------------------------------
+
+x-api-env: &api-env
+  POSTGRES_HOST: postgres
+  POSTGRES_PORT: "5432"
+  POSTGRES_DB: ragbuilder
+  POSTGRES_USER: ragbuilder
+  POSTGRES_PASSWORD: ragbuilder
+  QDRANT_URL: http://qdrant:6333
+  OLLAMA_HOST: ${OLLAMA_HOST:-http://host.docker.internal:11434}
+  MLFLOW_TRACKING_URI: http://mlflow:5000
+  EMBEDDING_MODEL: ${EMBEDDING_MODEL:-intfloat/multilingual-e5-small}
+  LLM_MODEL: ${LLM_MODEL:-mistral:latest}
+  CHUNKING_STRATEGY: ${CHUNKING_STRATEGY:-sentence}
+  RETRIEVAL_STRATEGY: ${RETRIEVAL_STRATEGY:-hybrid}
+  HF_HOME: /models
+  TOKENIZERS_PARALLELISM: "false"
+
+services:
+  # ------------------------------------------------------------- PostgreSQL
+  postgres:
+    image: postgres:16-alpine
+    container_name: ragbuilder-postgres
+    environment:
+      POSTGRES_DB: ragbuilder
+      POSTGRES_USER: ragbuilder
+      POSTGRES_PASSWORD: ragbuilder
+    ports:
+      - "5433:5432"   # 5433 on the host so it cannot collide with StreamPulse
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./sql/schema.sql:/docker-entrypoint-initdb.d/10_schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ragbuilder -d ragbuilder"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks: [ragbuilder]
+
+  # ----------------------------------------------------------------- Qdrant
+  qdrant:
+    image: qdrant/qdrant:v1.10.1
+    container_name: ragbuilder-qdrant
+    ports:
+      - "6333:6333"   # REST + dashboard
+      - "6334:6334"   # gRPC
+    volumes:
+      - qdrant-data:/qdrant/storage
+    environment:
+      QDRANT__SERVICE__ENABLE_STATIC_CONTENT: "true"
+      QDRANT__LOG_LEVEL: INFO
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c ':> /dev/tcp/127.0.0.1/6333' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 10s
+    networks: [ragbuilder]
+
+  # ----------------------------------------------------------------- MLflow
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v2.15.1
+    container_name: ragbuilder-mlflow
+    ports:
+      # 5001 on the host: macOS binds 5000 to the AirPlay Receiver by default.
+      - "5001:5000"
+    volumes:
+      - mlflow-data:/mlflow
+    command: >
+      mlflow server
+      --backend-store-uri sqlite:////mlflow/mlflow.db
+      --default-artifact-root /mlflow/artifacts
+      --host 0.0.0.0 --port 5000
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request;urllib.request.urlopen('http://localhost:5000/health')\""]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 20s
+    networks: [ragbuilder]
+
+  # -------------------------------------------------------------------- API
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: ragbuilder-api
+    depends_on:
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    environment:
+      <<: *api-env
+    volumes:
+      # The embedding model is ~2 GB; caching it outside the image means a
+      # rebuild does not re-download it.
+      - model-cache:/models
+      - ./data:/app/data
+      - ./config.yaml:/app/config.yaml:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"   # reach the host's Ollama on Linux
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request;urllib.request.urlopen('http://localhost:8000/health')\""]
+      interval: 20s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+    restart: unless-stopped
+    networks: [ragbuilder]
+
+  # --------------------------------------------------------------------- UI
+  ui:
+    build:
+      context: .
+      dockerfile: Dockerfile.ui
+    container_name: ragbuilder-ui
+    depends_on:
+      - api
+    ports:
+      - "8501:8501"
+    environment:
+      API_URL: http://api:8000
+    restart: unless-stopped
+    networks: [ragbuilder]
+
+volumes:
+  postgres-data:
+  qdrant-data:
+  mlflow-data:
+  model-cache:
+
+networks:
+  ragbuilder:
+    name: ragbuilder

@@ -1,0 +1,38 @@
+# syntax=docker/dockerfile:1
+# ---------------------------------------------------------------------------
+#  RAGBuilder API. CPU-only torch keeps the image at ~2.5 GB instead of ~7 GB -
+#  the CUDA wheels are pure weight on a machine with no NVIDIA GPU.
+# ---------------------------------------------------------------------------
+FROM python:3.11-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    HF_HOME=/models \
+    TOKENIZERS_PARALLELISM=false
+
+WORKDIR /app
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends build-essential curl \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt /app/requirements.txt
+RUN pip install --no-cache-dir torch==2.3.1 --index-url https://download.pytorch.org/whl/cpu \
+    && pip install --no-cache-dir -r /app/requirements.txt
+
+# Bake the NLTK sentence tokenizer in: downloading it at first request would
+# make the very first ingestion fail on an air-gapped host.
+RUN python -c "import nltk; nltk.download('punkt_tab', quiet=False); nltk.download('punkt', quiet=True)" \
+    && python -c "import nltk; print('german punkt ok:', nltk.sent_tokenize('Ein Satz. Noch einer.', language='german'))"
+
+COPY config.yaml /app/config.yaml
+COPY sql/ /app/sql/
+COPY ragbuilder/ /app/ragbuilder/
+COPY tests/ /app/tests/
+COPY pytest.ini /app/pytest.ini
+
+RUN mkdir -p /models /app/data/pdfs
+
+EXPOSE 8000
+CMD ["uvicorn", "ragbuilder.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
