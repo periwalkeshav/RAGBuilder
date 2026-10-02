@@ -1,5 +1,13 @@
 # RAGBuilder — Retrieval-Augmented QA over German Labour Law
 
+[![CI](https://github.com/your-handle/RAGBuilder/actions/workflows/ci.yml/badge.svg)](https://github.com/your-handle/RAGBuilder/actions/workflows/ci.yml)
+![Python](https://img.shields.io/badge/Python-3.11-3776AB?logo=python)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.111-009688?logo=fastapi)
+![Qdrant](https://img.shields.io/badge/Qdrant-1.10-DC244C)
+![Ollama](https://img.shields.io/badge/Ollama-Mistral--7B-000000?logo=ollama)
+![Streamlit](https://img.shields.io/badge/Streamlit-1.37-FF4B4B?logo=streamlit)
+![MLflow](https://img.shields.io/badge/MLflow-2.15-0194E2?logo=mlflow)
+
 A production-shaped RAG system over **26 German federal labour statutes**, running
 **entirely on local models**. Hybrid retrieval (dense + BM25 fused with Reciprocal Rank
 Fusion), citation-grounded generation with an explicit refusal path, and a RAGAs
@@ -316,3 +324,18 @@ make lint               # flake8 + black
 Several of these tests exist because of bugs found while building, and say so in their
 docstrings — the sparse-confidence test, the chunk-id namespacing test, and the
 citation-parsing tests all pin real regressions.
+
+---
+
+## CI/CD
+
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) — five jobs:
+
+1. **lint** — flake8 + black
+2. **unit-tests** — pytest with coverage, CPU-only torch
+3. **config** — `config.yaml` has every section; the test set has ≥20 questions, unique
+   ids, both languages, and at least one unanswerable question
+4. **docker-build** — buildx with layer cache; the built image must import the app and
+   pass its own tests
+5. **integration** — real PostgreSQL and Qdrant services, ingests a slice of the corpus,
+   embeds it, and asserts hybrid retrieval returns the right statute

@@ -1,0 +1,192 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  PYTHON_VERSION: "3.11"
+
+jobs:
+  # --------------------------------------------------------------------- lint
+  lint:
+    name: Lint (flake8 + black)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - run: pip install flake8==7.1.0 black==24.4.2
+      - run: flake8 ragbuilder ui tests
+      - run: black --check --line-length 110 ragbuilder ui tests
+
+  # --------------------------------------------------------------------- test
+  unit-tests:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          # CPU-only torch: the CUDA wheels are ~2 GB of dead weight on a runner
+          # with no GPU, and sentence-transformers needs torch to import.
+          pip install torch==2.3.1 --index-url https://download.pytorch.org/whl/cpu
+          pip install -r requirements.txt pytest-cov==5.0.0
+
+      - name: Download the sentence tokenizer
+        run: python -c "import nltk; nltk.download('punkt_tab'); nltk.download('punkt')"
+
+      - name: Run unit tests
+        run: |
+          pytest tests/ -v --ignore=tests/test_integration.py \
+            --cov=ragbuilder --cov-report=term-missing
+
+  # ------------------------------------------------------------- config sanity
+  config:
+    name: Config and test set integrity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - run: pip install PyYAML==6.0.1 python-dotenv==1.0.1
+
+      - name: config.yaml parses and every section is present
+        run: |
+          python - <<'PY'
+          import yaml
+          config = yaml.safe_load(open("config.yaml"))
+          expected = {"corpus", "embedding", "chunking", "vector_store",
+                      "retrieval", "llm", "rag", "evaluation", "api"}
+          missing = expected - set(config)
+          assert not missing, f"config.yaml is missing: {missing}"
+          assert config["chunking"]["strategy"] in {"fixed", "sentence", "semantic"}
+          assert config["retrieval"]["strategy"] in {"dense", "sparse", "hybrid"}
+          print(f"ok: {len(config)} sections")
+          PY
+
+      - name: The evaluation test set is well formed
+        run: |
+          python - <<'PY'
+          import json
+          questions = json.load(open("ragbuilder/evaluation/testset.json"))["questions"]
+          assert len(questions) >= 20, f"only {len(questions)} questions"
+          ids = [q["id"] for q in questions]
+          assert len(set(ids)) == len(ids), "duplicate question ids"
+          assert any(not q.get("answerable", True) for q in questions), \
+              "no unanswerable questions - the refusal path is untested"
+          assert {"de", "en"} <= {q["language"] for q in questions}
+          print(f"ok: {len(questions)} questions")
+          PY
+
+  # ------------------------------------------------------------------ compose
+  docker-build:
+    name: Build images
+    runs-on: ubuntu-latest
+    needs: [lint, unit-tests]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build the API image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.api
+          push: false
+          load: true
+          tags: ragbuilder-api:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build the UI image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.ui
+          push: false
+          load: true
+          tags: ragbuilder-ui:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: The API image can import the app and run its tests
+        run: |
+          docker run --rm ragbuilder-api:ci python -c "from ragbuilder.api.main import app; print(app.title)"
+          docker run --rm ragbuilder-api:ci python -m pytest tests/ -q --ignore=tests/test_integration.py
+
+  # -------------------------------------------------------------- integration
+  integration:
+    name: Integration (PostgreSQL + Qdrant)
+    runs-on: ubuntu-latest
+    needs: [unit-tests]
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: ragbuilder
+          POSTGRES_USER: ragbuilder
+          POSTGRES_PASSWORD: ragbuilder
+        ports: ["5433:5432"]
+        options: >-
+          --health-cmd "pg_isready -U ragbuilder"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+      qdrant:
+        image: qdrant/qdrant:v1.10.1
+        ports: ["6333:6333"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          pip install torch==2.3.1 --index-url https://download.pytorch.org/whl/cpu
+          pip install -r requirements.txt
+          python -c "import nltk; nltk.download('punkt_tab'); nltk.download('punkt')"
+
+      - name: Ingest and embed a slice of the corpus
+        # The small embedding model keeps this job under ten minutes; the
+        # pipeline is dimension-agnostic so this is a faithful smoke test.
+        env:
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: "5433"
+          QDRANT_URL: http://localhost:6333
+          EMBEDDING_MODEL: intfloat/multilingual-e5-small
+        run: |
+          python -m ragbuilder.cli init
+          python -m ragbuilder.cli ingest --strategies sentence --limit 5
+          python -m ragbuilder.cli embed --strategy sentence --recreate
+          python -m ragbuilder.cli stats
+
+      - name: Retrieval returns the right statute
+        env:
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: "5433"
+          QDRANT_URL: http://localhost:6333
+          EMBEDDING_MODEL: intfloat/multilingual-e5-small
+        run: |
+          python - <<'PY'
+          from ragbuilder.retrieval.retriever import get_retriever
+          result = get_retriever().retrieve("Wie viele Urlaubstage stehen mir zu?", mode="hybrid")
+          assert result.chunks, "hybrid retrieval returned nothing"
+          print(f"{len(result.chunks)} chunk(s), confidence {result.confidence:.2f}")
+          for chunk in result.chunks:
+              print(f"  {chunk.citation}  score={chunk.score:.4f} via {chunk.retriever}")
+          PY
