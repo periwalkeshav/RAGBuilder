@@ -30,6 +30,24 @@ docker compose up -d --build && make setup
 
 ---
 
+## Table of contents
+
+- [Architecture](#architecture)
+- [Measured results](#measured-results)
+- [Quick start](#quick-start)
+- [How retrieval works](#how-retrieval-works)
+- [Grounding and refusal](#grounding-and-refusal)
+- [Evaluation](#evaluation)
+- [The corpus](#the-corpus)
+- [API](#api)
+- [Testing](#testing)
+- [CI/CD](#cicd)
+- [Interview questions this project answers](#interview-questions-this-project-answers)
+- [Repository layout](#repository-layout)
+- [Troubleshooting](#troubleshooting)
+
+---
+
 ## Architecture
 
 ```mermaid
@@ -76,6 +94,118 @@ flowchart LR
 model or the chunking strategy means dropping the collection and rebuilding it — which
 must not mean re-parsing 26 PDFs. The vector payload carries a 300-character preview for
 rendering a citation without a round trip, and nothing more.
+
+---
+
+## Measured results
+
+Measured on a 10-core / 16 GB laptop, CPU only, with the whole stack in Docker and
+Ollama on the host. Corpus: 26 statutes, 478 pages, 4,015 chunks across three strategies.
+
+### Retrieval quality — the headline experiment
+
+22 questions, 20 with a known correct statute. **Hit rate** = the expected statute
+appeared in the top 5. Reproduce with `make evaluate-fast`.
+
+| Chunking | Retrieval | Hit rate | Refusal accuracy | Avg confidence | Avg latency |
+|---|---|---:|---:|---:|---:|
+| fixed | dense | 0.900 | 0.909 | 0.710 | 1,529 ms |
+| fixed | sparse | 0.900 | 0.818 | 0.501 | **14 ms** |
+| fixed | **hybrid** | **0.950** | 0.909 | 0.734 | 183 ms |
+| sentence | dense | 0.900 | 0.909 | 0.719 | 179 ms |
+| sentence | sparse | 0.900 | 0.818 | 0.502 | **15 ms** |
+| sentence | **hybrid** | **0.950** | 0.909 | 0.744 | 230 ms |
+| semantic | dense | 0.900 | 0.909 | 0.722 | 196 ms |
+| semantic | sparse | 0.900 | 0.818 | 0.504 | **14 ms** |
+| semantic | **hybrid** | **0.950** | 0.909 | **0.745** | 253 ms |
+
+**What this actually shows:**
+
+1. **Hybrid beats either retriever alone, in every single strategy** — 0.950 vs 0.900.
+   That is the central claim of the design, and it holds across all three chunkings
+   rather than being an artefact of one.
+2. **Chunking strategy barely moves retrieval.** All three land on the same hit rate.
+   Semantic chunking costs ~7 minutes of extra ingestion (it embeds every sentence
+   *before* chunking) and buys 0.001 of confidence. On a corpus this uniformly
+   structured, **sentence chunking is the right default** — the honest finding, not the
+   one the design predicted.
+3. **BM25 is ~13× faster than dense and just as accurate here**, because statutory
+   questions are keyword-dense. It loses on paraphrase, which is why fusion wins.
+
+### Answer quality — RAGAs metrics, and how to read them
+
+22 questions, `sentence` chunking, `hybrid` retrieval, Mistral-7B generating and
+judging. Reproduce with `make evaluate` (~80 minutes on CPU).
+
+| Metric | Score | What it means here |
+|---|---:|---|
+| `retrieval_hit_rate` | **0.950** | The right statute was in the top 5 for 19 of 20 answerable questions |
+| `refusal_accuracy` | **1.000** | Refused both out-of-corpus questions, answered all 20 answerable ones |
+| `citation_rate` | **1.000** | Every answer carried at least one `[n]` marker |
+| `answer_relevancy` | **0.907** | Answers address the question that was asked |
+| `context_recall` | **0.744** | The retrieved context could support ~3/4 of each reference answer |
+| `context_precision` | **0.170** | ← read the arithmetic below before reacting |
+| `faithfulness` | **0.389** | ← and the caveat below |
+| Avg latency | 77.9 s | Generation on CPU dominates; retrieval is 0.2 s of it |
+
+**`context_precision` of 0.17 is close to its ceiling, not a failure.** The metric
+is precision@k: of the `k` retrieved chunks, how many are useful. Almost every
+question here is answered by *exactly one* paragraph of *one* statute, and `k=5`.
+So the arithmetic maximum is **1/5 = 0.20**, and 0.170 is 85 % of that. The number
+is a property of the retrieval budget, not of the retriever. Dropping to `k=2`
+would roughly double it while making recall worse — which is why
+`retrieval_hit_rate` is the metric this project tunes against and
+`context_precision` is reported alongside it rather than instead of it.
+
+**`faithfulness` of 0.389 is mostly a statement about the judge.** Faithfulness
+asks a 7B model to decide whether each extracted claim is entailed by the
+context. Mistral-7B is a weak entailment judge: it marks a claim unsupported when
+the context *implies* rather than *states* it, which German statutory language
+does constantly (`§ 3` gives the number, `§ 4` gives the waiting period, and an
+answer that combines them reads as unsupported to a literal-minded judge). Spot-
+checking the low scorers confirms this — `q02` and `q07` scored 0.00 on answers
+that are factually correct and correctly cited.
+
+The honest position: **relative comparisons between configurations are the
+signal; the absolute faithfulness number is not trustworthy at this judge size.**
+Fixing it means a stronger judge (GPT-4-class, or a dedicated NLI model like
+`microsoft/deberta-v3-large-mnli`), which reintroduces either an API dependency
+or a second model to host — the trade-off is documented in
+[DESIGN.md § 9](DESIGN.md#9-evaluation-ragas-metrics-local-judge).
+
+That `refusal_accuracy` and `citation_rate` are both 1.000 is the result worth
+leading with: the system never invented an answer to a question its corpus could
+not support, and never made an uncited claim.
+
+### Cross-lingual retrieval: the embedding model matters more than the chunker
+
+The same question asked in German and English against three German passages, one
+correct. Reproduce with `docker compose exec api python scripts/ab_embedding_models.py`.
+
+| Model | German query | English query |
+|---|---|---|
+| `multilingual-e5-small` (384d) | ✅ correct (0.905) | ❌ **wrong** (0.821 vs 0.804) |
+| `multilingual-e5-large` (1024d) | ✅ correct (0.902) | ✅ **correct** (0.806) |
+
+This is the concrete cost of the `-small` default. Both models handle German→German
+fine; only `-large` handles English→German. If your users ask in a different language
+from the corpus, **pay for the large model** — it is worth far more than any chunking
+tweak.
+
+### Throughput
+
+| Stage | Result |
+|---|---:|
+| Download 26 statutes | 14 s |
+| Parse + chunk, 3 strategies (4,015 chunks, 478 pages) | 430 s |
+| Embed 4,015 chunks — `e5-small` | 4.0 chunks/s |
+| Embed 1,385 chunks — `e5-large` | **< 0.5 chunks/s** (still running at 35 min) |
+| Retrieval, hybrid (BM25 index warm) | 180–250 ms |
+| Generation, Mistral-7B on CPU | 0.5–7 tok/s, 35–70 s per answer |
+| BM25 index build (1,385 chunks, 12,095 tokens) | 0.20 s |
+
+Generation is the bottleneck by two orders of magnitude, which is why the API streams
+and why the refusal guard runs *before* the model is called.
 
 ---
 
@@ -339,3 +469,102 @@ citation-parsing tests all pin real regressions.
    pass its own tests
 5. **integration** — real PostgreSQL and Qdrant services, ingests a slice of the corpus,
    embeds it, and asserts hybrid retrieval returns the right statute
+
+---
+
+## Interview questions this project answers
+
+**"How did you evaluate whether your RAG system was hallucinating?"**
+Faithfulness: decompose each answer into claims, ask the judge whether the retrieved
+context supports each one, report the supported fraction. Per-claim verdicts are kept, so
+an unsupported claim is inspectable rather than a number.
+
+**"Why Qdrant over Pinecone or Chroma?"**
+Self-hosted (the premise of the whole stack), and filters applied *inside* the HNSW
+traversal rather than as a post-filter over the top-k — so restricting a search to one
+statute still returns `k` results. pgvector was the genuinely tempting alternative; it
+would remove a service at the cost of HNSW tuning and in-traversal filtering.
+
+**"What is RRF and why is it better than merging results?"**
+See [above](#why-reciprocal-rank-fusion-not-score-merging) — the short version is that
+scores from different retrievers are not comparable and every normalisation makes the
+weighting query-dependent.
+
+**"Semantic vs fixed chunking — when would you use each?"**
+On this corpus, measured: **no meaningful difference in retrieval hit rate**, and semantic
+costs 7 extra minutes of ingestion. Fixed chunking's real failure is structural — it cuts
+mid-provision, so the retrieved fragment reads as authoritative and is incomplete. Use
+sentence-aware by default; fixed when sentence boundaries are unreliable (OCR,
+transcripts); semantic when documents genuinely change topic mid-section.
+
+**"How would you scale this to 10 million documents?"**
+Distributed Qdrant with sharding; move BM25 out of memory into PostgreSQL FTS or
+Elasticsearch; batch embedding on GPU (CPU is 4 chunks/s — the binding constraint);
+and add a cross-encoder reranker over the top 20, which would likely beat any further
+fusion tuning.
+
+**"What would you do differently?"** See
+[DESIGN.md § Known limitations](DESIGN.md#known-limitations) — the judge is the weakest
+link, BM25 is in memory, there is no reranker, confidence is heuristic rather than
+calibrated, and conversation memory does not rewrite the retrieval query.
+
+---
+
+## Repository layout
+
+```
+RAGBuilder/
+├── ragbuilder/
+│   ├── config.py              # config.yaml + env overlay (no PEP 563 - see the docstring)
+│   ├── db.py                  # PostgreSQL access, explicit SQL
+│   ├── ingestion/
+│   │   ├── corpora.py         #   26 statutes + arXiv fallback
+│   │   ├── parser.py          #   PyMuPDF: pages, § sections, tables→Markdown
+│   │   └── pipeline.py        #   incremental, SHA-256 gated
+│   ├── chunking/
+│   │   ├── base.py            #   Chunk, tokens, sentence splitting, page mapping
+│   │   └── strategies.py      #   fixed · sentence · semantic + registry
+│   ├── embeddings/
+│   │   ├── encoder.py         #   e5 with the query:/passage: prefixes baked in
+│   │   ├── store.py           #   Qdrant, incl. pruning orphaned vectors
+│   │   └── pipeline.py        #   batched, resumable
+│   ├── retrieval/
+│   │   ├── sparse.py          #   BM25, § -preserving tokenizer
+│   │   ├── fusion.py          #   Reciprocal Rank Fusion
+│   │   └── retriever.py       #   dense/sparse/hybrid + expansion + confidence
+│   ├── llm/
+│   │   ├── client.py          #   Ollama, streaming, model fallback
+│   │   └── prompts.py         #   system prompt, citation parsing, refusal detection
+│   ├── rag/chain.py           # retrieve → guard → generate → attribute
+│   ├── evaluation/
+│   │   ├── metrics.py         #   RAGAs definitions against a local judge
+│   │   ├── testset.json       #   22 questions, 2 deliberately unanswerable
+│   │   └── runner.py          #   grid runner + MLflow logging
+│   └── api/                   # FastAPI + Pydantic models
+├── ui/app.py                  # Streamlit chat client
+├── scripts/ab_embedding_models.py   # the cross-lingual A/B above
+├── sql/schema.sql             # 7 tables, 2 views
+├── tests/                     # 213 unit + 18 integration tests
+├── DESIGN.md                  # every decision + what would make the other choice right
+└── docker-compose.yml
+```
+
+---
+
+## Troubleshooting
+
+| Symptom | Cause / fix |
+|---|---|
+| `/health` shows ollama **down** | Ollama runs on the *host*. `ollama serve`, then `ollama pull mistral` |
+| Answers take 40–70 s | Expected: 7B on CPU. Use a smaller model (`LLM_MODEL=qwen2.5-coder:7b`) or a GPU host |
+| Embedding takes forever | You are on `e5-large`. `EMBEDDING_MODEL=intfloat/multilingual-e5-small make reset-vectors` |
+| `collection has N dimensions but the model produces M` | Model changed without rebuilding. `make reset-vectors` |
+| Retrieval returns text that looks truncated at 300 chars | Orphaned vectors whose chunk was deleted. `make embed` prunes them automatically |
+| English questions retrieve the wrong statute | Known limitation of `e5-small` — see [the A/B above](#cross-lingual-retrieval-the-embedding-model-matters-more-than-the-chunker) |
+| Port 5000 already in use | macOS AirPlay Receiver. MLflow is mapped to **5001** |
+
+---
+
+## License
+
+MIT. The statutes themselves are public domain under § 5 UrhG.
